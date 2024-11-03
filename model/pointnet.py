@@ -25,7 +25,7 @@ class TNet(nn.Module):
         pass
 
 class PointNet(nn.Module):
-    def __init__(self, num_classes=40):
+    def __init__(self, num_classes=10):
         super(PointNet, self).__init__()
         self.tnet1 = TNet(k=3)
         self.conv1 = nn.Conv1d(3, 64, 1)

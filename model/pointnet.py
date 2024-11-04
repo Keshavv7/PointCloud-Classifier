@@ -34,4 +34,6 @@ class PointNet(nn.Module):
 
     def forward(self, x):
         # Define forward pass
+        x = F.relu(self.bn1(self.conv1))
+        x = F.relu(self.bn2(self.conv2))
         pass

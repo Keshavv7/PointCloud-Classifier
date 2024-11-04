@@ -67,8 +67,3 @@ You can modify `config.py` to change hyperparameters like `BATCH_SIZE`, `NUM_POI
 - **Virtual Environment**: Remember to activate the virtual environment each time you work on this project.
 
 Happy training!
-```
-
----
-
-This setup should help users easily get started with the project in a virtual environment, ensuring that dependencies are isolated.

@@ -160,16 +160,25 @@ class PointNetClassHead(nn.Module):
     def __init__(self, num_points=2500, num_global_feat=1024, num_classes=5):
         super(PointNetClassHead, self).__init__()
 
+        self.feature_map = None
+        self.features_indices = None
+        self.feature_transform = None
+
         # Initialize the main PointNet architecture (for classification tasks)
         self.pointnet = PointNet(local_feat=False)
 
+        # Fully Connected Layers to extract information for classification
         self.fc1 = nn.Linear(num_global_feat, 512)
         self.fc2 = nn.Linear(512, 256)
         self.fc3 = nn.Linear(256, num_classes)
 
+        # Batch Normalization layers
         self.bn1 = nn.BatchNorm1d(512)
         self.bn2 = nn.BatchNorm1d(256)
 
+        # The paper states that batch norm was only added to the layer 
+        # before the classication layer, but another version adds dropout  
+        # to the first 2 layers
         self.dropout = nn.Dropout1d(p=0.25)
 
     def forward(self, x):
@@ -183,6 +192,10 @@ class PointNetClassHead(nn.Module):
         x = self.dropout(x)
 
         x = self.fc3(x)
+
+        self.feature_map = x
+        self.features_indices = crit_idx
+        self.feature_transform = A_feat
 
         # Return logits
         return x, crit_idx, A_feat

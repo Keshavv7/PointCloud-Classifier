@@ -222,6 +222,12 @@ def main():
     print(f'Shape of indices: {index_cls.shape}')
     print(f'Shape of feature_matrix: {A_feat_cls.shape}')
 
+    classifier = PointNetClassHead(num_classes=10)
+    features, indices, A_feat = classifier(test_data)
+    print(f'The shape of features extracted by Classifier: {features.shape}')
+    print(f'Shape of indices: {indices.shape}')
+    print(f'Shape of feature_matrix: {A_feat.shape}')
+
 
 
 if __name__ == '__main__':

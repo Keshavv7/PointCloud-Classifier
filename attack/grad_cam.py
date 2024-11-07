@@ -1,6 +1,5 @@
 import torch
 import torch.nn.functional as F
-from ..model.pointnet import PointNet
 
 class PointNetGradCAM:
     def __init__(self, model, target_layer):

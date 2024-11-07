@@ -149,10 +149,43 @@ class PointNet(nn.Module):
         self.features_seg = features    # Shape = (batch_size, num_global_feat + num_local_feat, num_points)
         self.features_cls = global_features # Shape = (batch_size, num_global_feat)
 
-        if self.local_feat:
+        if self.local_feat:     # For Segmentation
             return features, critical_indexes, A_feat
         
+        # For Classification
         return global_features, critical_indexes, A_feat
+    
+class PointNetClassHead(nn.Module):
+    '''Classification Head for the PointNet'''
+    def __init__(self, num_points=2500, num_global_feat=1024, num_classes=5):
+        super(PointNetClassHead, self).__init__()
+
+        # Initialize the main PointNet architecture (for classification tasks)
+        self.pointnet = PointNet(local_feat=False)
+
+        self.fc1 = nn.Linear(num_global_feat, 512)
+        self.fc2 = nn.Linear(512, 256)
+        self.fc3 = nn.Linear(256, num_classes)
+
+        self.bn1 = nn.BatchNorm1d(512)
+        self.bn2 = nn.BatchNorm1d(256)
+
+        self.dropout = nn.Dropout1d(p=0.25)
+
+    def forward(self, x):
+
+        # Retrieve the PointNet's feature map
+        x, crit_idx, A_feat = self.pointnet(x)
+
+        x = self.bn1(F.relu(self.fc1(x)))
+        x = self.bn2(F.relu(self.fc2(x)))
+
+        x = self.dropout(x)
+
+        x = self.fc3(x)
+
+        # Return logits
+        return x, crit_idx, A_feat
 
 # Test 
 def main():

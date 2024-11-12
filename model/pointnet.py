@@ -3,6 +3,10 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
+# supress pytorch user warnings
+import warnings
+warnings.filterwarnings("ignore")
+
 class TNet(nn.Module):
     ''' T-Net learns a Transformation matrix with a specified dimension d'''
     def __init__(self, d, num_points = 2500):

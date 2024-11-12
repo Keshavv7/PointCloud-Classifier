@@ -3,7 +3,7 @@ import torch
 from config import Config
 from data_loader import get_dataloader
 from model.pointnet import PointNet
-from trainer import Trainer
+from model.trainer import Trainer
 
 def main():
     train_loader = get_dataloader(root_dir='path/to/ModelNet10', batch_size=Config.BATCH_SIZE, num_points=Config.NUM_POINTS, split='train')

@@ -194,7 +194,7 @@ class PointNetClassHead(nn.Module):
         x = self.bn2(F.relu(self.fc2(x)))
 
         x = self.dropout(x)
-
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                
         x = self.fc3(x)
 
         self.feature_map = x

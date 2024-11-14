@@ -1,87 +1,59 @@
 import torch
+import torch.nn as nn
 import torch.nn.functional as F
+from torch.autograd import Variable
+from ..model.pointnet import PointNet
 
-class PointNetGradCAM:
-    def __init__(self, model, target_layer):
-        """
-        Initializes the Grad-CAM method for PointNet.
-        Args:
-            model: The trained PointNet model.
-            target_layer: The layer to extract gradients from (e.g., feature layer before max pooling).
-        """
+
+# Grad-CAM class for generating attention maps for 3D point clouds
+class GradCAM:
+    def __init__(self, model):
         self.model = model
-        self.target_layer = target_layer
-        self.gradients = None
-        self.activations = None
-        # Register hooks to get gradients and activations from the target layer
-        self._register_hooks()
+        self.model.eval()
 
-    def _register_hooks(self):
-        """
-        Registers hooks to capture gradients and activations in the target layer.
-        """
-        def backward_hook(module, grad_input, grad_output):
-            self.gradients = grad_output[0]
+    def get_attention_map(self, x, class_idx=None):
+        # Step 1: Get the feature map and the gradients
+        features, logits = self.model(x)
+
+        # Step 2: Set the gradient hook for the feature map
+        def save_gradients(module, grad_input, grad_output):
+            self.gradients = grad_output[0]  # Gradients of the output wrt the feature map
+
+        # Hook the gradients to the last fully connected layer
+        hook = self.model.fc2.register_backward_hook(save_gradients)
         
-        def forward_hook(module, input, output):
-            self.activations = output
-
-        # Attach hooks to target layer
-        self.target_layer.register_forward_hook(forward_hook)
-        self.target_layer.register_backward_hook(backward_hook)
-
-    def generate_attention_map(self, input_point_cloud, target_class):
-        """
-        Generates a Grad-CAM based attention map for the given input and target class.
-        Args:
-            input_point_cloud: Input 3D point cloud data of shape (batch_size, num_points, num_features).
-            target_class: Class index for which the attention map is generated.
-        
-        Returns:
-            Binary attention map of shape (batch_size, num_features) indicating important regions.
-        """
-        # Forward pass
-        output = self.model(input_point_cloud)  # Shape: (batch_size, num_classes)
-        loss = output[:, target_class].sum()    # Sum over batch for a specific target class
-
-        # Backward pass to get gradients
+        # Step 3: Backpropagate to get the gradients for the class we are interested in
+        if class_idx is None:
+            class_idx = logits.argmax(dim=1)  # Default to the predicted class
         self.model.zero_grad()
-        loss.backward(retain_graph=True)
+        one_hot_output = torch.zeros_like(logits)
+        one_hot_output[0][class_idx] = 1
+        logits.backward(gradient=one_hot_output, retain_graph=True)
 
-        # Apply global average pooling on the gradients to obtain importance weights
-        weights = torch.mean(self.gradients, dim=2, keepdim=True)  # Shape: (batch_size, num_features, 1)
-
-        # Compute weighted activations
-        weighted_activations = weights * self.activations  # Shape: (batch_size, num_features, num_points)
+        # Step 4: Pool the gradients and feature maps to get the attention map
+        pooled_gradients = torch.mean(self.gradients, dim=[0, 2], keepdim=True)
+        weighted_features = features * pooled_gradients
+        attention_map = torch.sum(weighted_features, dim=1, keepdim=True)
+        attention_map = F.relu(attention_map)  # Only positive parts are important
         
-        # Sum across feature dimension to get attention map
-        attention_map = torch.sum(weighted_activations, dim=1)  # Shape: (batch_size, num_points)
-
-        # Normalize attention map to [0, 1] and binarize based on threshold
-        attention_map = F.relu(attention_map)  # Remove negative values
-        attention_map -= attention_map.min((1), keepdim=True)[0]  # Min-max normalization
-        attention_map /= (attention_map.max((1), keepdim=True)[0] + 1e-5)
+        # Normalize the attention map to [0, 1]
+        attention_map = F.interpolate(attention_map, size=x.size(2), mode='linear', align_corners=False)
+        attention_map = attention_map.squeeze(0).cpu().detach().numpy()
         
-        # Binarize attention map with a threshold (e.g., 0.2)
-        binary_attention_map = (attention_map > 0.2).float()  # Shape: (batch_size, num_points)
+        # Step 5: Return the attention map (scaled and normalized)
+        return attention_map
 
-        return binary_attention_map
-
-
-# Example usage
-# Assume `model` is a PointNet model with a layer `model.feature_layer` before pooling
-# and input_point_cloud is a tensor of shape (batch_size, num_points, num_features)
-
-model = None  # Load your trained PointNet model
-target_layer = model.features_cls  # Define the target layer from PointNet
-
-# Initialize Grad-CAM for PointNet
-grad_cam = PointNetGradCAM(model, target_layer)
-
-# Generate binary attention map
-input_point_cloud = torch.randn(8, 1024, 3)  # Example input: batch of 8 point clouds, 1024 points each, 3 features (x, y, z)
-target_class = 1  # Example target class index
-
-# Obtain binary attention map for the given input and target class
-binary_attention_map = grad_cam.generate_attention_map(input_point_cloud, target_class)
-print("Binary Attention Map Shape:", binary_attention_map.shape)  # Should be (batch_size, num_points)
+# Main execution
+if __name__ == '__main__':
+    # Initialize the model and Grad-CAM
+    model = PointNet(local_feat=True)
+    grad_cam = GradCAM(model)
+    
+    # Simulate a batch of point cloud data (batch_size x num_features x num_points)
+    # Here num_points is 2048 for ShapeNet dataset and num_features is 64
+    x = torch.randn(1, 3, 2048)  # Simulate 1 point cloud with 2048 points, each with 3 coordinates (x, y, z)
+    
+    # Get the attention map for a specific class (default: predicted class)
+    attention_map = grad_cam.get_attention_map(x)
+    
+    print(f"Attention map shape: {attention_map.shape}")

@@ -5,4 +5,17 @@ pandas
 open3d
 matplotlib
 torchmetrics
+iopath
+scikit-image
+imageio
+plotly
+opencv-python
+black
+usort
+flake8
+flake8-bugbear
+flake8-comprehensions
+wheel
+setuptools
+ninja
 

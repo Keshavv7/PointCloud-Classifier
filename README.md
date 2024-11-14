@@ -67,3 +67,21 @@ You can modify `config.py` to change hyperparameters like `BATCH_SIZE`, `NUM_POI
 - **Virtual Environment**: Remember to activate the virtual environment each time you work on this project.
 
 Happy training!
+
+sudo docker run -it --name test3d \
+    --gpus all \
+    -v /home/btp_2/PointCloud-Classifier:/workspace \
+    pytorch/pytorch:1.13.1-cuda11.6-cudnn8-devel /bin/bash
+
+sudo docker start test3d
+
+sudo docker attach test3d
+
+Detach: Ctrl + P + Q
+
+sudo docker stop test3d
+
+
+Install python-dev
+
+pip install --no-build-isolation "git+https://github.com/facebookresearch/pytorch3d.git@stable"

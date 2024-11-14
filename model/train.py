@@ -121,7 +121,7 @@ print(f'Class output shape: {out.shape}')
 DEVICE = 'cuda' if torch.cuda.is_available() else 'cpu'
 
 import torch.optim as optim
-from point_net_loss import PointNetLoss
+from loss import PointNetLoss
 
 EPOCHS = 100
 LR = 0.0001

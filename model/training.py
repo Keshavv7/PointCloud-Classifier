@@ -1,160 +1,18 @@
 import os
-import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
 import torch.optim as optim
 from torch.utils.data import Dataset,DataLoader
 import trimesh
-import gc
 import numpy as np
 from datetime import datetime
 import logging
 from pathlib import Path
 import json
 import wandb  
-
 from model.pointnet import *
-
-
-# class PointCloud(Dataset):
-#     """Face Landmarks dataset."""
-
-#     def __init__(self, root_dir, n=50176,train = True):
-#         """
-#         Args:
-#             csv_file (string): Path to the csv file with annotations.
-#             root_dir (string): Directory with all the images.
-#             transform (callable, optional): Optional transform to be applied
-#                 on a sample.
-#         """
-#         self.classes = os.listdir(root_dir)
-#         self.root_dir = root_dir
-#         self.n = n
-#         self.labels = {}
-#         self.train = train
-#         self.traincount = 0
-#         self.testcount = 0
-#         for i in range(len(self.classes)):
-#             self.labels[self.classes[i]] = i
-        
-#         trainls = []
-#         df = pd.DataFrame(trainls)
-#         for i in range(len(self.classes)):
-#             folderpath = self.root_dir + "/" + self.classes[i] + "/train/"  
-#             for j in os.listdir(folderpath):
-#                 trainls.append(folderpath + j)  
-#         self.trainfilepath = pd.DataFrame(trainls)
-
-#         testls = []
-#         for i in range(len(self.classes)):
-#             folderpath = self.root_dir + "/" + self.classes[i] + "/test/"  
-#             for j in os.listdir(folderpath):
-#                 testls.append(folderpath + j) 
-#         self.testfilepath = pd.DataFrame(testls)
-                    
-#     def __len__(self):
-#         if self.train == True:
-#             return len(self.trainfilepath)
-#         if self.train == False:
-#             return len(self.testfilepath)
-
-#     def __getitem__(self, idx):
-#         # idx is row number
-#         if torch.is_tensor(idx):
-#             idx = idx.tolist()
-            
-#         lslabel = np.zeros(10)
-#         if self.train == True:
-#             path = self.trainfilepath.iloc[idx][0]
-#             points = trimesh.load(self.trainfilepath.iloc[idx][0]).sample(self.n)
-#             for i in self.labels.keys():
-#                 if i in path:
-#                     lslabel[self.labels[i]] = 1
-                
-                    
-#         elif self.train == False:        
-#             path = self.testfilepath[idx]
-#             points = trimesh.load(self.testfilepath[0][idx]).sample(self.n)
-#             for i in self.labels.keys():
-#                 if i in path:
-#                     lslabel[self.labels[i]] = 1
-            
-            
-#         return torch.tensor(points),torch.tensor(lslabel)
-    
-
-# pointcloudtrain_dataset = PointCloud(root_dir='../input/modelnet10-princeton-3d-object-dataset/ModelNet10/',n = 1024,train = True)
-# pointcloudtest_dataset = PointCloud(root_dir='../input/modelnet10-princeton-3d-object-dataset/ModelNet10/',n = 1024,train = False)
-
-# from torch.utils.data.dataloader import default_collate
-
-# device = torch.device('cuda:0')  # or whatever device/cpu you like
-
-# # the new collate function is quite generic
-# trainloader = DataLoader(pointcloudtrain_dataset, batch_size=128, shuffle=True, 
-#                     collate_fn=lambda x: tuple(x_.to(device) for x_ in default_collate(x)))
-# testloader = DataLoader(pointcloudtest_dataset, batch_size=128, shuffle=True, 
-#                     collate_fn=lambda x: tuple(x_.to(device) for x_ in default_collate(x)))
-
-
-
-# # Assuming that we are on a CUDA machine, this should print a CUDA device:
-
-# print("Device used: ", device)
-
-# dataiter = iter(trainloader)
-
-# points, labels = dataiter.next()
-# print("Points batch shape: ", points.shape)
-
-# Network = PointNetClassHead()
-# Network.cuda()
-# torch.cuda.current_device()
-
-
-
-# criterion = nn.CrossEntropyLoss()
-# optimizer = optim.SGD(Network.parameters(), lr=0.001, momentum=0.9)
-# def accuracy(out, labels):
-#     _,pred = torch.max(out, dim=1)
-#     return torch.sum(pred==labels).item()
-
-# total_step = len(trainloader)
-# startepoch = 0
-# torch.cuda.synchronize()
-# for epoch in range(startepoch,20):
-#     running_loss = 0.0
-#     for i, data in enumerate(trainloader, 0):
-#         inputs, labels = data
-#         inputs, labels = inputs.to(device,dtype=torch.float), labels.to(device,dtype=torch.float)
-# #         inputs,labels = inputs.float(),labels.float()
-#         optimizer.zero_grad()
-#         outputs, _, _ = Network(inputs)
-
-#         loss = criterion(outputs, labels)
-#         loss.backward()
-#         optimizer.step()
-
-#         running_loss += loss.item()
-
-#     torch.save({
-#             'epoch': epoch,
-#             'model_state_dict': Network.state_dict(),
-#             'optimizer_state_dict': optimizer.state_dict(),
-#             'loss': loss,
-#             }, "trained_models/pointnet_01.pth")
-
-#     if (epoch+1) % 1 == 0:
-#             print ('Epoch [{}/{}], Step [{}/{}], Loss: {:.4f}' 
-#             .format(epoch+1, 100, i+1, total_step, loss.item()))
-
-
-# print('Finished Training')
-
-
 
 class PointCloudDataset(Dataset):
     def __init__(self, root_dir, n_points=1024, train=True, augment=True):
@@ -173,6 +31,9 @@ class PointCloudDataset(Dataset):
             for file_name in os.listdir(class_path):
                 self.samples.append(os.path.join(class_path, file_name))
                 self.labels.append(class_idx)
+
+        # Convert labels to numpy array for proper indexing
+        self.labels = np.array(self.labels, dtype=np.int64)
     
     def normalize_point_cloud(self, points):
         # Center the point cloud
@@ -199,6 +60,10 @@ class PointCloudDataset(Dataset):
     
     def __getitem__(self, idx):
         try:
+            # Ensure idx is an integer scalar
+            if isinstance(idx, torch.Tensor):
+                idx = idx.item()
+
             # Load point cloud
             mesh = trimesh.load(self.samples[idx])
             points = np.array(mesh.sample(self.n_points))
@@ -240,6 +105,9 @@ class PointCloudDataset(Dataset):
             points = torch.FloatTensor(points)
             # Create one-hot encoded label
             label = torch.zeros(len(self.classes))
+            # print("Element of labels: ", self.labels[idx])
+            # print("Shape of labels: ", (self.labels[idx]).shape)
+            # label[int(self.labels[idx])] = 1
             label[self.labels[idx]] = 1
             
             # Ensure points tensor is of shape (3, N)
@@ -584,6 +452,6 @@ def test_dataset():
 
 if __name__ == '__main__':
     test_dataset()
-    main()
+    #main()
     # Uncomment to run testing after training
     # test()

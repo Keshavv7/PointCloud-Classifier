@@ -7,6 +7,15 @@ import torch.nn.functional as F
 import warnings
 warnings.filterwarnings("ignore")
 
+class LocalFeatureExtractor(nn.Module):
+    """New module specifically for local feature extraction"""
+    def __init__(self):
+        super(LocalFeatureExtractor, self).__init__()
+
+    def forward(self, x):
+        # Simply clone and return - this creates a specific operation we can hook into
+        return x.clone()
+
 class TNet(nn.Module):
     ''' T-Net learns a Transformation matrix with a specified dimension d'''
     def __init__(self, d, num_points = 2500):
@@ -87,7 +96,10 @@ class PointNet(nn.Module):
         self.num_points = num_points
         self.num_global_feats = num_global_feats
         self.local_feat = local_feat
-        self.features_cls = None
+
+        # Initializing feature maps
+        self.local_feature_map = None
+        self.global_feature_map = None
         self.features_seg = None
 
         # Initializing Spatial Transformer Networks (T-nets)
@@ -112,6 +124,8 @@ class PointNet(nn.Module):
 
         # max pool to get the global features
         self.max_pool = nn.MaxPool1d(kernel_size=num_points, return_indices=True)
+        # Add layer to extract feature map
+        self.feature_extractor = nn.Linear(64, 64)
 
     def forward(self, x):
         # Get batch size
@@ -134,10 +148,19 @@ class PointNet(nn.Module):
         x = torch.bmm(x.transpose(2,1), A_feat).transpose(2,1)
 
         # Capture local features for segmentation head
+        #x = self.feature_extractor(x)
         local_features = x.clone()
+        self.local_feature_map = local_features     # Shape = (batch_size, num_local_feat, num_points)
 
         # Pass x through the second Shared MLP
         x = self.bn3(F.relu(self.conv3(x)))
+
+        # Capture local features for segmentation head
+        #x = self.feature_extractor(x)
+        local_features = x.clone()
+        self.local_feature_map = local_features     # Shape = (batch_size, num_local_feat, num_points)
+
+
         x = self.bn4(F.relu(self.conv4(x)))
         x = self.bn5(F.relu(self.conv5(x)))
 
@@ -151,7 +174,7 @@ class PointNet(nn.Module):
                     dim=1)
         
         self.features_seg = features    # Shape = (batch_size, num_global_feat + num_local_feat, num_points)
-        self.features_cls = global_features # Shape = (batch_size, num_global_feat)
+        self.global_feature_map = global_features # Shape = (batch_size, num_global_feat)
 
         if self.local_feat:     # For Segmentation
             return features, critical_indexes, A_feat
@@ -219,6 +242,7 @@ def main():
     print(f'The shape of features extracted by Pointnet for segmentation: {features_seg.shape}')
     print(f'Shape of indices: {index_seg.shape}')
     print(f'Shape of feature_matrix: {A_feat_seg.shape}')
+    print(f'Shape of local feature map: {pointnet_seg.local_feature_map.shape}')
 
     pointnet_cls = PointNet(local_feat=False)
     features_cls, index_cls, A_feat_cls = pointnet_cls(test_data)
@@ -230,7 +254,9 @@ def main():
     features, indices, A_feat = classifier(test_data)
     print(f'The shape of features extracted by Classifier: {features.shape}')
     print(f'Shape of indices: {indices.shape}')
-    print(f'Shape of feature_matrix: {A_feat.shape}')
+    print(f'Shape of feature_matrix: {A_feat.shape}')    
+    target_class = features.argmax(dim=1)
+    print(f'Here are target classes for each point cloud in batch: {target_class}')
 
 
 

@@ -85,3 +85,7 @@ sudo docker stop test3d
 Install python-dev
 
 pip install --no-build-isolation "git+https://github.com/facebookresearch/pytorch3d.git@stable"
+
+
+
+/bin/python3 -m attack.grad_cam_manual

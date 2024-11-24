@@ -2,7 +2,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torch.autograd import Variable
-from .pointnet import PointNet
+from ..model.pointnet import PointNet
 
 class GradCAM:
     def __init__(self, model, target_layer):

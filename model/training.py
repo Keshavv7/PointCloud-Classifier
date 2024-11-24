@@ -121,7 +121,7 @@ class PointCloudDataset(Dataset):
             return torch.zeros(3, self.n_points), torch.zeros(len(self.classes))
 
 
-def train_pointnet(model, train_loader, val_loader, num_epochs=20, device='cuda'):
+def train_pointnet(model, train_loader, val_loader, num_epochs=20, device='cuda', checkpoint_dir=None, logger=None, use_wandb=False):
     criterion = nn.CrossEntropyLoss()
     optimizer = optim.AdamW(model.parameters(), lr=0.001, weight_decay=0.05)
     scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', patience=5)
@@ -171,7 +171,11 @@ def train_pointnet(model, train_loader, val_loader, num_epochs=20, device='cuda'
             train_loss += loss.item()
             
             if batch_idx % 10 == 0:
-                print(f'Epoch: {epoch}, Batch: {batch_idx}, Loss: {loss.item():.4f}')
+                log_msg = f'Epoch: {epoch}, Batch: {batch_idx}, Loss: {loss.item():.4f}'
+                if logger:
+                    logger.info(log_msg)
+                else:
+                    print(log_msg)
         
         train_acc = 100. * train_correct / train_total
         avg_train_loss = train_loss / len(train_loader)
@@ -201,10 +205,21 @@ def train_pointnet(model, train_loader, val_loader, num_epochs=20, device='cuda'
         # Learning rate scheduling
         scheduler.step(avg_val_loss)
         
+        # Log metrics
+        if use_wandb:
+            wandb.log({
+                'train_loss': avg_train_loss,
+                'train_acc': train_acc,
+                'val_loss': avg_val_loss,
+                'val_acc': val_acc,
+                'learning_rate': optimizer.param_groups[0]['lr']
+            })
+        
         # Save best model
-        if avg_val_loss < best_val_loss:
+        if checkpoint_dir is not None and avg_val_loss < best_val_loss:
             best_val_loss = avg_val_loss
             patience_counter = 0
+            checkpoint_path = checkpoint_dir / 'best_model.pth'
             torch.save({
                 'epoch': epoch,
                 'model_state_dict': model.state_dict(),
@@ -213,18 +228,28 @@ def train_pointnet(model, train_loader, val_loader, num_epochs=20, device='cuda'
                 'val_loss': avg_val_loss,
                 'train_acc': train_acc,
                 'val_acc': val_acc
-            }, f'checkpoints/pointnet_best.pth')
+            }, checkpoint_path)
+            if logger:
+                logger.info(f'Saved best model to {checkpoint_path}')
         else:
             patience_counter += 1
         
         # Early stopping
         if patience_counter >= patience:
-            print("Early stopping triggered!")
+            if logger:
+                logger.info("Early stopping triggered!")
+            else:
+                print("Early stopping triggered!")
             break
         
-        print(f'Epoch {epoch}:')
-        print(f'Train Loss: {avg_train_loss:.4f}, Train Acc: {train_acc:.2f}%')
-        print(f'Val Loss: {avg_val_loss:.4f}, Val Acc: {val_acc:.2f}%') 
+        # Log epoch results
+        log_msg = (f'Epoch {epoch}:\n'
+                  f'Train Loss: {avg_train_loss:.4f}, Train Acc: {train_acc:.2f}%\n'
+                  f'Val Loss: {avg_val_loss:.4f}, Val Acc: {val_acc:.2f}%')
+        if logger:
+            logger.info(log_msg)
+        else:
+            print(log_msg)
 
 
 def setup_logging(log_dir):
@@ -452,6 +477,7 @@ def test_dataset():
 
 if __name__ == '__main__':
     test_dataset()
-    #main()
+    print("Dataset tested and works!")
+    main()
     # Uncomment to run testing after training
     # test()

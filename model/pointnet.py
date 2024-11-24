@@ -192,7 +192,7 @@ class PointNetClassHead(nn.Module):
         self.feature_transform = None
 
         # Initialize the main PointNet architecture (for classification tasks)
-        self.pointnet = PointNet(local_feat=False)
+        self.pointnet = PointNet(num_points=num_points, local_feat=False)
 
         # Fully Connected Layers to extract information for classification
         self.fc1 = nn.Linear(num_global_feat, 512)

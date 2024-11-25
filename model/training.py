@@ -127,7 +127,7 @@ def train_pointnet(model, train_loader, val_loader, num_epochs=20, device='cuda'
     scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', patience=5)
     
     best_val_loss = float('inf')
-    patience = 10
+    patience = 25
     patience_counter = 0
     
     for epoch in range(num_epochs):

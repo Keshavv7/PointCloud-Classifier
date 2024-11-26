@@ -127,7 +127,7 @@ def train_pointnet(model, train_loader, val_loader, num_epochs=20, device='cuda'
     scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', patience=5)
     
     best_val_loss = float('inf')
-    patience = 25
+    patience = 100
     patience_counter = 0
     
     for epoch in range(num_epochs):
@@ -278,8 +278,8 @@ def main():
         'log_dir': 'runs/' + datetime.now().strftime('%Y%m%d_%H%M%S'),
         'num_points': 1024,
         'batch_size': 32,
-        'num_epochs': 50,
-        'learning_rate': 0.001,
+        'num_epochs': 250,
+        'learning_rate': 0.0005,
         'weight_decay': 0.05,
         'num_workers': 4,
         'num_classes': 10,  # ModelNet10 has 10 classes

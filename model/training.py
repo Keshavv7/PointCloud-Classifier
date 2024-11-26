@@ -13,6 +13,8 @@ from pathlib import Path
 import json
 import wandb  
 from model.pointnet import *
+from model.loss import *
+import open3d as o3d
 
 class PointCloudDataset(Dataset):
     def __init__(self, root_dir, n_points=1024, train=True, augment=True):
@@ -120,14 +122,32 @@ class PointCloudDataset(Dataset):
             # Return a zero tensor of correct shape in case of error
             return torch.zeros(3, self.n_points), torch.zeros(len(self.classes))
 
+def compute_class_weights(dataset):
+    """
+    Compute class weights based on inverse frequency of classes
+    """
+    # Count occurrences of each class
+    unique, counts = np.unique(dataset.labels, return_counts=True)
+    
+    # Compute inverse frequency weights
+    total_samples = len(dataset)
+    weights = total_samples / (len(dataset.classes) * counts)
+    
+    # Normalize weights
+    weights = weights / np.sum(weights)
+    
+    return weights.tolist()
 
-def train_pointnet(model, train_loader, val_loader, num_epochs=20, device='cuda', checkpoint_dir=None, logger=None, use_wandb=False):
-    criterion = nn.CrossEntropyLoss()
+def train_pointnet(model, train_loader, val_loader, class_weights=[1/10]*10, num_epochs=20, device='cuda', checkpoint_dir=None, logger=None, use_wandb=False):
+    # criterion = nn.CrossEntropyLoss()
+    # Initialize loss function and optimizer
+    
+    criterion = PointNetLoss(alpha=class_weights, gamma=2, reg_weight=0.001)
     optimizer = optim.AdamW(model.parameters(), lr=0.001, weight_decay=0.05)
     scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', patience=5)
     
     best_val_loss = float('inf')
-    patience = 100
+    patience = 150
     patience_counter = 0
     
     for epoch in range(num_epochs):
@@ -152,13 +172,13 @@ def train_pointnet(model, train_loader, val_loader, num_epochs=20, device='cuda'
             # Calculate main loss
             loss = criterion(outputs, targets)
             
-            # Add orthogonal regularization loss for the feature transform
-            if transform_matrix is not None:
-                I = torch.eye(64).to(device)
-                batch_size = transform_matrix.size(0)
-                mat_diff = torch.bmm(transform_matrix, transform_matrix.transpose(1, 2)) - I
-                reg_loss = torch.mean(torch.norm(mat_diff, dim=(1, 2)))
-                loss += 0.001 * reg_loss
+            # # Add orthogonal regularization loss for the feature transform
+            # if transform_matrix is not None:
+            #     I = torch.eye(64).to(device)
+            #     batch_size = transform_matrix.size(0)
+            #     mat_diff = torch.bmm(transform_matrix, transform_matrix.transpose(1, 2)) - I
+            #     reg_loss = torch.mean(torch.norm(mat_diff, dim=(1, 2)))
+            #     loss += 0.001 * reg_loss
             
             # Backward pass and optimize
             loss.backward()
@@ -276,7 +296,7 @@ def main():
     config = {
         'data_dir': 'datasets/ModelNet10',
         'log_dir': 'runs/' + datetime.now().strftime('%Y%m%d_%H%M%S'),
-        'num_points': 1024,
+        'num_points': 3500,
         'batch_size': 32,
         'num_epochs': 250,
         'learning_rate': 0.0005,
@@ -347,6 +367,9 @@ def main():
         )
         wandb.watch(model)
 
+    # Compute class weights for applying focal loss
+    class_weights = compute_class_weights(train_dataset)
+
     # Load checkpoint if exists
     checkpoint_path = checkpoint_dir / 'latest.pth'
     start_epoch = 0
@@ -362,6 +385,7 @@ def main():
             model=model,
             train_loader=train_loader,
             val_loader=val_loader,
+            class_weights=class_weights,
             num_epochs=config['num_epochs'],
             device=device,
             checkpoint_dir=checkpoint_dir,
@@ -447,11 +471,32 @@ def test():
     accuracy = evaluate_model(model, test_loader, device, logger)
     return accuracy
 
+def visualize_point_cloud_with_label(points, label):
+    """
+    Visualize a point cloud with its label using Open3D.
+    Args:
+        points (numpy.ndarray): Point cloud data of shape (n_points, 3)
+        label (int): Label associated with the point cloud
+    """
+    # Create an Open3D PointCloud object
+    point_cloud = o3d.geometry.PointCloud()
+    point_cloud.points = o3d.utility.Vector3dVector(points)
+    
+    # Create a visualizer object
+    vis = o3d.visualization.Visualizer()
+    vis.create_window(window_name=f"Point Cloud Label: {label}")
+    vis.add_geometry(point_cloud)
+
+    # Display the point cloud
+    vis.run()  # Keep the window open until the user closes it
+    vis.destroy_window()  # Close the window
+    return
+
 def test_dataset():
     """Test the dataset implementation"""
     dataset = PointCloudDataset(
         root_dir='datasets/ModelNet10',
-        n_points=1024,
+        n_points=3500,
         train=True,
         augment=True
     )
@@ -462,6 +507,17 @@ def test_dataset():
     points, label = dataset[0]
     print(f"Points shape: {points.shape}")
     print(f"Label shape: {label.shape}")
+
+    class_idx = np.argmax(label)
+    label_name = dataset.classes[class_idx]
+
+    # Convert points to numpy format for visualization
+    points_numpy = points.T.cpu().numpy()  # Transpose to (n_points, 3) format
+    
+    # Visualize the first point cloud
+    # visualize_point_cloud(points_numpy)
+    # Visualize the first point cloud with its label
+    visualize_point_cloud_with_label(points_numpy, label_name)
     
     # Test data loader
     dataloader = DataLoader(
@@ -476,8 +532,8 @@ def test_dataset():
         break
 
 if __name__ == '__main__':
-    test_dataset()
-    print("Dataset tested and works!")
+    #test_dataset()
+    #print("Dataset tested and works!")
     main()
     # Uncomment to run testing after training
     # test()

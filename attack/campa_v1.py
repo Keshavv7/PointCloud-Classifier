@@ -22,8 +22,8 @@ class CAMPA3DAttack:
         self.model = model
         self.grad_cam = grad_cam
         self.config = {
-            'max_iterations': 10000,
-            'learning_rate': 0.01,
+            'max_iterations': 50000,
+            'learning_rate': 0.02,
             'epsilon': 500,  # Maximum perturbation magnitude
             'confidence': 0.5,  # Confidence threshold for successful attack
             'device': torch.device('cuda' if torch.cuda.is_available() else 'cpu')

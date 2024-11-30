@@ -89,3 +89,6 @@ pip install --no-build-isolation "git+https://github.com/facebookresearch/pytorc
 
 
 /bin/python3 -m attack.grad_cam_manual
+
+eval "$(ssh-agent -s)"
+ssh-add ~/.ssh/{key_name}

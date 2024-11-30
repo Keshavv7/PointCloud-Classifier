@@ -478,6 +478,8 @@ def visualize_point_cloud_with_label(points, label):
         points (numpy.ndarray): Point cloud data of shape (n_points, 3)
         label (int): Label associated with the point cloud
     """
+    import open3d as o3d
+    
     # Create an Open3D PointCloud object
     point_cloud = o3d.geometry.PointCloud()
     point_cloud.points = o3d.utility.Vector3dVector(points)

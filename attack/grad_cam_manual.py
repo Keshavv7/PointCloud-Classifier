@@ -62,8 +62,8 @@ class PointNetGradCAM:
             torch.cuda.manual_seed_all(42)
         
         # Ensure consistent computation
-        with torch.no_grad():
-            input_points.requires_grad = True
+        # with torch.no_grad():
+        #     input_points.requires_grad = True
         
         #input_points.requires_grad = True
         batch_size = input_points.size(0)
@@ -86,8 +86,8 @@ class PointNetGradCAM:
         logits.backward(gradient=one_hot, retain_graph=True)
 
         # Add these prints in generate_cam() after the backward pass:
-        print("Features shape:", self.features.shape if self.features is not None else None)
-        print("Gradients shape:", self.gradients.shape if self.gradients is not None else None)
+        # print("Features shape:", self.features.shape if self.features is not None else None)
+        # print("Gradients shape:", self.gradients.shape if self.gradients is not None else None)
 
         # Ensure we have gradients and features
         if self.gradients is None or self.features is None:
@@ -205,7 +205,7 @@ def visualize_point_cloud_with_attention(points, attention_weights, title_prefix
         print(f"Visualizing batch {b + 1} point cloud with attention weights...")
         o3d.visualization.draw_geometries([o3d_cloud], window_name=f"{title_prefix} {b + 1}")
 
-
+    return
 
 from model.training import PointCloudDataset
 import json

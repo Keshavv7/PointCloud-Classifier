@@ -51,8 +51,21 @@ class PointNetGradCAM:
             cam: GradCAM attention map (B, N)
             pred_class: Predicted class
         """
+
+        # Set model to evaluation mode
+        self.model.eval()
         
-        input_points.requires_grad = True
+        # Set random seeds for reproducibility
+        torch.manual_seed(42)
+        if torch.cuda.is_available():
+            torch.cuda.manual_seed(42)
+            torch.cuda.manual_seed_all(42)
+        
+        # Ensure consistent computation
+        with torch.no_grad():
+            input_points.requires_grad = True
+        
+        #input_points.requires_grad = True
         batch_size = input_points.size(0)
 
         # Forward pass
@@ -150,17 +163,102 @@ def save_attention_visualization(points, attention_weights, output_file="attenti
             # Save each batch to the file
             np.savetxt(f, viz_data, fmt='%.6f')
 
+    return
+import matplotlib.pyplot as plt
+from mpl_toolkits.mplot3d import Axes3D
+import numpy as np
+import open3d as o3d
 
+
+def visualize_point_cloud_with_attention(points, attention_weights, title_prefix="Point Cloud"):
+    """
+    Visualize each point cloud in the batch with attention weights using Open3D.
+    
+    Args:
+        points: Input points (B, 3, N) tensor
+        attention_weights: Attention weights (B, N) tensor
+        title_prefix: Prefix for visualization window titles
+    """
+    points = points.detach().cpu().numpy()  # Convert points to numpy (B, 3, N)
+    attention_weights = attention_weights.detach().cpu().numpy()  # Convert weights to numpy (B, N)
+
+    batch_size = points.shape[0]
+
+    for b in range(batch_size):
+        # Extract point cloud and attention weights for this batch
+        point_cloud = points[b].T  # Shape: (N, 3)
+        weights = attention_weights[b]  # Shape: (N,)
+
+        # Normalize attention weights to [0, 1] for color mapping
+        normalized_weights = (weights - weights.min()) / (weights.max() - weights.min())
+        
+        # Create an Open3D point cloud
+        o3d_cloud = o3d.geometry.PointCloud()
+        o3d_cloud.points = o3d.utility.Vector3dVector(point_cloud)
+
+        # Map normalized weights to colors (e.g., "jet" colormap)
+        colormap = plt.cm.get_cmap("jet")  # Use "jet" colormap for vivid colors
+        colors = colormap(normalized_weights)[:, :3]  # Get RGB values (ignore alpha)
+        o3d_cloud.colors = o3d.utility.Vector3dVector(colors)
+
+        # Visualize the point cloud
+        print(f"Visualizing batch {b + 1} point cloud with attention weights...")
+        o3d.visualization.draw_geometries([o3d_cloud], window_name=f"{title_prefix} {b + 1}")
+
+
+
+from model.training import PointCloudDataset
+import json
 # Example usage
 def main():
+     # Load configuration
+    with open('runs/20241125_233927/config.json', 'r') as f:
+        config = json.load(f)
+
     # Create model and sample input
-    model = PointNetClassHead(num_classes=10)
+    model = PointNetClassHead(
+        num_points=config['num_points'],
+        num_classes=config['num_classes']
+    )
+    checkpoint = torch.load('runs/20241125_233927/checkpoints/final_model.pth')
+    model.load_state_dict(checkpoint['model_state_dict'])
     # model.load_state_dict(torch.load('path_to_model_weights.pth'))
 
     # Set model to eval mode
     #model.eval()
 
-    sample_input = torch.rand(5, 3, 2500)
+   
+
+    # Initialize test dataset and loader
+    test_dataset = PointCloudDataset(
+        root_dir=config['data_dir'],
+        n_points=config['num_points'],
+        train=False,
+        augment=False
+    )
+
+    # Get three data points from the dataset
+    points_list = []
+    labels_list = []
+    for i in range(1,4):  # Adjust batch size by changing this loop range
+        points, label = test_dataset[i]
+        points_list.append(points.unsqueeze(0))  # Add batch dimension to each point cloud
+        labels_list.append(label.unsqueeze(0))  # Add batch dimension to each label
+
+    # Combine the individual data points into a batch
+    batch_points = torch.cat(points_list, dim=0)  # Shape: (3, 3, num_points)
+    batch_labels = torch.cat(labels_list, dim=0)  # Shape: (3, num_classes)
+    batch_targets = torch.argmax(batch_labels, dim=1)
+
+    print(f"Batch points shape: {batch_points.shape}")
+    print(f"Batch labels shape: {batch_labels.shape}")
+    print(f'Batch targets: {batch_targets}')
+
+    sample_input = torch.rand(5, 3, 1024)
+
+    print(f"Sample input shape: {sample_input.shape}")
+
+    sample_input = batch_points
 
     print("Running GradCAM...\n\n")
     
@@ -173,9 +271,14 @@ def main():
     
     # Visualize results
     highlighted_points = visualize_attention(sample_input, attention_map)
-    
+
      # Save visualization data
     save_attention_visualization(sample_input, attention_map)
+
+    #plot_3d_attention(sample_input, attention_map, title="GradCAM 3D Attention Map")
+
+    # Visualize attention map on point clouds using Open3D
+    visualize_point_cloud_with_attention(sample_input, attention_map, title_prefix="GradCAM Attention")
     
     print(f"Predicted class: {pred_class}")
     print(f"Attention map shape: {attention_map.shape}")

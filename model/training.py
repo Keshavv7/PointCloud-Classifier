@@ -14,7 +14,7 @@ import json
 import wandb  
 from model.pointnet import *
 from model.loss import *
-import open3d as o3d
+#import open3d as o3d
 
 class PointCloudDataset(Dataset):
     def __init__(self, root_dir, n_points=1024, train=True, augment=True):
@@ -147,7 +147,7 @@ def train_pointnet(model, train_loader, val_loader, class_weights=[1/10]*10, num
     scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', patience=5)
     
     best_val_loss = float('inf')
-    patience = 150
+    patience = 250
     patience_counter = 0
     
     for epoch in range(num_epochs):
@@ -170,7 +170,7 @@ def train_pointnet(model, train_loader, val_loader, class_weights=[1/10]*10, num
             outputs, _, transform_matrix = model(points)
             
             # Calculate main loss
-            loss = criterion(outputs, targets)
+            loss = criterion(outputs, targets, transform_matrix)
             
             # # Add orthogonal regularization loss for the feature transform
             # if transform_matrix is not None:
@@ -296,9 +296,9 @@ def main():
     config = {
         'data_dir': 'datasets/ModelNet10',
         'log_dir': 'runs/' + datetime.now().strftime('%Y%m%d_%H%M%S'),
-        'num_points': 3500,
+        'num_points': 1000,
         'batch_size': 32,
-        'num_epochs': 250,
+        'num_epochs': 100,
         'learning_rate': 0.0005,
         'weight_decay': 0.05,
         'num_workers': 4,

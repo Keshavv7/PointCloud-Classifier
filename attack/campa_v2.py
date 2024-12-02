@@ -8,6 +8,7 @@ from model.training import PointCloudDataset, visualize_point_cloud_with_label
 import json
 import matplotlib.pyplot as plt
 from mpl_toolkits.mplot3d import Axes3D
+from torch.utils.data import DataLoader
 
 class CAMPA3DAttack:
     def __init__(self, model, grad_cam, config=None):
@@ -21,16 +22,16 @@ class CAMPA3DAttack:
         """
         self.model = model
         self.grad_cam = grad_cam
-        self.grad_scale_factor = 1.5
+        self.grad_scale_factor = 2
         self.iter_step = 50
         self.config = {
             'max_iterations': 500,
-            'learning_rate': 0.0001,
-            'epsilon': 0.8,  # Maximum perturbation magnitude
+            'learning_rate': 0.001,
+            'epsilon': 5,  # Maximum perturbation magnitude
             'confidence': 0.5,  # Confidence threshold for successful attack
             'device': torch.device('cuda' if torch.cuda.is_available() else 'cpu')
         }
-        self.max_point_dist = 0.5
+        self.max_point_dist = 1.5
         
         if config:
             self.config.update(config)
@@ -111,9 +112,6 @@ class CAMPA3DAttack:
         
             loss.backward(retain_graph=True)
             grad = adversarial_clouds.grad
-            # Compute gradients
-            #grad = torch.autograd.grad(loss, adversarial_clouds, retain_graph=True)[0]
-            # print(f'Gradients shape: {grad.shape}')
             
             # Normalize gradients
             grad = grad.contiguous()
@@ -183,23 +181,6 @@ class CAMPA3DAttack:
         Returns:
             torch.Tensor: Attack loss
         """
-        # # Cross-entropy loss towards target classes
-        # ce_loss = F.cross_entropy(logits, target_classes, reduction='none')
-
-        # # Entropy-based loss to encourage misclassification
-        # entropy_loss = -torch.mean(F.log_softmax(logits, dim=1).sum(dim=1))
-
-        # # Attention-weighted component
-        # attention_loss = attention_map.mean(dim=1)
-        
-        # # Combined loss with tunable weights
-        # total_loss = (
-        #     ce_loss * 2.0 +  # Target class loss
-        #     1.5 * entropy_loss +  # Entropy encourages uncertainty
-        #     0.5 * attention_loss  # Attention guides perturbation
-        # )
-        
-        # return total_loss.mean()
 
         # Cross-entropy loss: Want to MINIMIZE the logits for the original class
         # and MAXIMIZE the logits for the target class
@@ -211,7 +192,7 @@ class CAMPA3DAttack:
         original_log_prob = log_probs[torch.arange(logits.size(0)), original_preds]
         
         # We want this to be a NEGATIVE loss (high probability for target class)
-        misclassification_loss = original_log_prob.mean() #+ (-5*target_log_prob.mean()) 
+        misclassification_loss = original_log_prob.mean() #+ (-2*target_log_prob.mean()) 
         
         # Optional: Add an entropy term to encourage uncertainty
         entropy_loss = -torch.mean(torch.sum(torch.exp(log_probs) * log_probs, dim=1))
@@ -220,7 +201,7 @@ class CAMPA3DAttack:
         attention_loss = torch.mean(attention_map)
         
         # Combined loss
-        total_loss = 8 * misclassification_loss + 0.5 * entropy_loss + 1.5 * attention_loss
+        total_loss = 8 * misclassification_loss + 0.5 * entropy_loss + 2.5 * attention_loss
         
         return total_loss
 
@@ -288,84 +269,123 @@ def display_points(dataset, point_clouds, labels):
 
     return
 
+from sklearn.metrics import accuracy_score, confusion_matrix, classification_report
 
-def display_comparison(dataset, original_points, adv_points, orig_preds, adv_preds, labels):
-    import open3d as o3d
+def evaluate_model_performance(model, dataloader, device=None):
     """
-    Display original and adversarial point clouds side by side using Open3D.
-
-    Args:
-        dataset (PointCloudDataset): Dataset object for class names
-        original_points (torch.Tensor): Original point clouds (B, 3, N)
-        adv_points (torch.Tensor): Adversarial point clouds (B, 3, N)
-        orig_preds (torch.Tensor): Predictions for original point clouds (B,)
-        adv_preds (torch.Tensor): Predictions for adversarial point clouds (B,)
-        labels (torch.Tensor): True labels (B,)
-    """
-    batch_size = original_points.size(0)
-
-    for b in range(batch_size):
-        # Convert point clouds to numpy
-        orig_cloud = original_points[b].T.cpu().numpy()  # Transpose to shape (N, 3)
-        adv_cloud = adv_points[b].T.cpu().numpy()  # Transpose to shape (N, 3)
-        
-        # Prepare labels
-        orig_label = labels[b]
-        orig_pred_label = dataset.classes[orig_preds[b].item()]
-        adv_pred_label = dataset.classes[adv_preds[b].item()]
-        true_label_name = dataset.classes[torch.argmax(orig_label).item()]
-        
-        # Create Open3D point clouds
-        orig_pcd = o3d.geometry.PointCloud()
-        orig_pcd.points = o3d.utility.Vector3dVector(orig_cloud)
-        orig_pcd.paint_uniform_color([0, 0, 1])  # Blue for original cloud
-        
-        adv_pcd = o3d.geometry.PointCloud()
-        adv_pcd.points = o3d.utility.Vector3dVector(adv_cloud)
-        adv_pcd.paint_uniform_color([1, 0, 0])  # Red for adversarial cloud
-        
-        # Create visualization window
-        vis = o3d.visualization.Visualizer()
-        vis.create_window(window_name=f"Comparison for Sample {b}")
-        
-        # Add point clouds to visualization
-        vis.add_geometry(orig_pcd)
-        vis.add_geometry(adv_pcd)
-        
-        # Add coordinate frame for reference
-        coord_frame = o3d.geometry.TriangleMesh.create_coordinate_frame(
-            size=0.5, origin=[0, 0, 0])
-        vis.add_geometry(coord_frame)
-        
-        # Set up camera view
-        ctr = vis.get_view_control()
-        ctr.set_zoom(0.6)
-        ctr.set_front([0.4, -0.4, -0.8])
-        ctr.set_lookat([0, 0, 0])
-        ctr.set_up([0, 1, 0])
-        
-        # Render and add annotations
-        opt = vis.get_render_option()
-        opt.point_size = 3.0
-        
-        # Create custom annotation
-        annotation_text = (
-            f"True Label: {true_label_name}\n"
-            f"Original Pred: {orig_pred_label}\n"
-            f"Adversarial Pred: {adv_pred_label}"
-        )
-        
-        # Render initial view
-        vis.update_geometry(orig_pcd)
-        vis.update_geometry(adv_pcd)
-        vis.update_renderer()
-        
-        # Run visualization
-        vis.run()
-        vis.destroy_window()
+    Evaluate model performance on a given dataset
     
-    return
+    Args:
+        model (nn.Module): Classification model
+        dataloader (torch.utils.data.DataLoader): Dataset loader
+        device (torch.device, optional): Computing device
+    
+    Returns:
+        dict: Performance metrics
+    """
+    if device is None:
+        device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    
+    model.to(device)
+    model.eval()
+    
+    true_labels = []
+    predicted_labels = []
+    
+    with torch.no_grad():
+        for points, labels in dataloader:
+            points, labels = points.to(device), labels.to(device)
+            
+            # Get true labels
+            true_label_indices = torch.argmax(labels, dim=1)
+            true_labels.extend(true_label_indices.cpu().numpy())
+            
+            # Get predictions
+            logits, _, _ = model(points)
+            preds = torch.argmax(logits, dim=1)
+            predicted_labels.extend(preds.cpu().numpy())
+    
+    # Calculate metrics
+    accuracy = accuracy_score(true_labels, predicted_labels)
+    conf_matrix = confusion_matrix(true_labels, predicted_labels)
+    class_report = classification_report(true_labels, predicted_labels)
+    
+    return {
+        'accuracy': accuracy,
+        'confusion_matrix': conf_matrix,
+        'classification_report': class_report
+    }
 
+def evaluate_attack_robustness(model, attack, dataloader, target_classes=None, device=None):
+    """
+    Evaluate robustness of adversarial attack
+    
+    Args:
+        model (nn.Module): Classification model
+        attack (CAMPA3DAttack): Adversarial attack method
+        dataloader (torch.utils.data.DataLoader): Dataset loader
+        target_classes (torch.Tensor, optional): Target misclassification classes
+        device (torch.device, optional): Computing device
+    
+    Returns:
+        dict: Attack performance metrics
+    """
+    if device is None:
+        device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    
+    model.to(device)
+    model.eval()
+    
+    original_labels = []
+    original_preds = []
+    adversarial_preds = []
+    misclassification_rates = []
+    
+    for points, labels in dataloader:
+        points, labels = points.to(device), labels.to(device)
+        
+        # Get original predictions
+        with torch.no_grad():
+            orig_logits, _, _ = model(points)
+            orig_pred = torch.argmax(orig_logits, dim=1)
+            original_preds.extend(orig_pred.cpu().numpy())
+        
+        # Generate target classes if not provided
+        if target_classes is None:
+            target_classes = torch.randint(
+                0, model.fc3.out_features, 
+                size=(points.size(0),), 
+                device=device
+            )
+            for i in range(len(target_classes)):
+                if target_classes[i] == orig_pred[i]:
+                    target_classes[i] = (target_classes[i] + 1) % model.fc3.out_features
+        
+        # Generate adversarial examples
+        adv_points = attack.generate_adversarial_point_clouds(points, target_classes)
+        
+        # Get adversarial predictions
+        with torch.no_grad():
+            adv_logits, _, _ = model(adv_points)
+            adv_pred = torch.argmax(adv_logits, dim=1)
+            adversarial_preds.extend(adv_pred.cpu().numpy())
+        
+        # Calculate misclassification rate
+        misclassification = (adv_pred != orig_pred).float().mean().item()
+        misclassification_rates.append(misclassification)
+        
+        original_labels.extend(torch.argmax(labels, dim=1).cpu().numpy())
+    
+    return {
+        'original_labels': original_labels,
+        'original_predictions': original_preds,
+        'adversarial_predictions': adversarial_preds,
+        'misclassification_rate': np.mean(misclassification_rates),
+        'attack_success_rate': accuracy_score(
+            original_labels, 
+            adversarial_preds
+        )
+    }
 
 # Usage example (requires existing PointNetClassHead and PointNetGradCAM)
 def main():
@@ -383,6 +403,7 @@ def main():
 
     grad_cam = PointNetGradCAM(model)
 
+    attack = CAMPA3DAttack(model, grad_cam)
 
     # Initialize test dataset and loader
     test_dataset = PointCloudDataset(
@@ -391,39 +412,25 @@ def main():
         train=False,
         augment=False
     )
+    test_loader = torch.utils.data.DataLoader(
+        test_dataset, 
+        batch_size=32, 
+        shuffle=False
+    )
 
-    # Get three data points from the dataset
-    points_list = []
-    labels_list = []
-    for i in range(1,4):  # Adjust batch size by changing this loop range
-        points, label = test_dataset[i]
-        points_list.append(points.unsqueeze(0))  # Add batch dimension to each point cloud
-        labels_list.append(label.unsqueeze(0))  # Add batch dimension to each label
+    # Evaluate original model performance
+    print("Original Model Performance:")
+    orig_metrics = evaluate_model_performance(model, test_loader)
+    print(f"Accuracy: {orig_metrics['accuracy']:.4f}")
+    print("Confusion Matrix:\n", orig_metrics['confusion_matrix'])
+    print("Classification Report:\n", orig_metrics['classification_report'])
 
-    # Combine the individual data points into a batch
-    batch_points = torch.cat(points_list, dim=0)  # Shape: (3, 3, num_points)
-    batch_labels = torch.cat(labels_list, dim=0)  # Shape: (3, num_classes)
-    batch_targets = torch.argmax(batch_labels, dim=1)
+    # Evaluate attack performance
+    print("\nAdversarial Attack Performance:")
+    attack_metrics = evaluate_attack_robustness(model, attack, test_loader)
+    print(f"Misclassification Rate: {attack_metrics['misclassification_rate']:.4f}")
+    print(f"Attack Success Rate: {attack_metrics['attack_success_rate']:.4f}")
 
-    print(f"Batch points shape: {batch_points.shape}")
-    print(f"Batch labels shape: {batch_labels.shape}")
-    print(f'Batch targets: {batch_targets}')
-
-    sample_input = batch_points
-
-    target_classes = torch.tensor([8, 8, 8])
-    
-    # Run adversarial attack visualization
-    adv_points, orig_preds, adv_preds = visualize_adversarial_attack(model, grad_cam, sample_input,target_classes=target_classes)
-
-    print(f'Perturbed Clouds shape: {adv_points.shape}')
-
-    display_points(test_dataset, batch_points, batch_labels)
-
-    display_points(test_dataset, adv_points, batch_labels)
-
-    # Visualize comparison of original and adversarial clouds
-    #display_comparison(test_dataset, sample_input, adv_points, orig_preds, adv_preds, batch_labels)
 
 
 if __name__ == "__main__":

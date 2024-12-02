@@ -192,7 +192,7 @@ class CAMPA3DAttack:
         original_log_prob = log_probs[torch.arange(logits.size(0)), original_preds]
         
         # We want this to be a NEGATIVE loss (high probability for target class)
-        misclassification_loss = original_log_prob.mean() #+ (-2*target_log_prob.mean()) 
+        misclassification_loss = original_log_prob.mean() + (-2*target_log_prob.mean()) 
         
         # Optional: Add an entropy term to encourage uncertainty
         entropy_loss = -torch.mean(torch.sum(torch.exp(log_probs) * log_probs, dim=1))
